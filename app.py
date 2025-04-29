@@ -38,9 +38,14 @@ def load_data(excel_file, csv_file):
 # Load data
 centers_df, beneficiaries_df = load_data(uploaded_excel, uploaded_csv)
 
-# Rename 'wellnessCentreName' to 'Wellness Center' for consistency
+# Rename any possible wellness center column to 'Wellness Center'
 if not centers_df.empty:
-    centers_df.rename(columns={'wellnessCentreName': 'Wellness Center'}, inplace=True)
+    possible_wc_columns = ['Wellness Center', 'wellnessCentreName', 'WellnessCentreName', 'Center Name']
+    for col in centers_df.columns:
+        if col.strip() in possible_wc_columns:
+            centers_df.rename(columns={col: 'Wellness Center'}, inplace=True)
+            break
+
 
 # Column name cleanup again for safety
 if not centers_df.empty:
