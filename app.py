@@ -1,3 +1,4 @@
+#app.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -37,6 +38,9 @@ def load_data(excel_file, csv_file):
 # Load data
 centers_df, beneficiaries_df = load_data(uploaded_excel, uploaded_csv)
 
+# Rename 'wellnessCentreName' to 'Wellness Center' for consistency
+if not centers_df.empty:
+    centers_df.rename(columns={'wellnessCentreName': 'Wellness Center'}, inplace=True)
 
 # Column name cleanup again for safety
 if not centers_df.empty:
@@ -81,5 +85,38 @@ with st.expander("🔍 Preview Uploaded Data"):
     st.subheader("Beneficiaries Data")
     st.dataframe(beneficiaries_df.head())
 
-# Placeholder for further logic
-st.markdown("📊 Add your clustering, charts, or analytics here.")
+# 📊 Add clustering, charts, or analytics here
+st.header("📊 Basic KMeans Clustering on Beneficiaries Data")
+
+# Example clustering on number of beneficiaries per wellness center
+try:
+    # Grouping by Wellness Center
+    grouped_df = beneficiaries_df.groupby('Wellness Center').size().reset_index(name='Beneficiary Count')
+
+    # Standardize the data
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(grouped_df[['Beneficiary Count']])
+
+    # Sidebar: select number of clusters
+    n_clusters = st.sidebar.slider('Select number of clusters:', min_value=2, max_value=10, value=3)
+
+    # KMeans Clustering
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    grouped_df['Cluster'] = kmeans.fit_predict(X_scaled)
+
+    # Plotting
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.scatterplot(data=grouped_df, x='Wellness Center', y='Beneficiary Count', hue='Cluster', palette='Set2', s=100, ax=ax)
+    plt.xticks(rotation=90)
+    plt.title('Clustering of Wellness Centers based on Beneficiaries')
+    plt.xlabel('Wellness Center')
+    plt.ylabel('Number of Beneficiaries')
+    plt.legend(title="Cluster")
+    st.pyplot(fig)
+
+    # Optional: show cluster labels
+    with st.expander("🔍 View Cluster Assignments"):
+        st.dataframe(grouped_df)
+
+except Exception as e:
+    st.error(f"⚠️ Clustering failed: {str(e)}")
