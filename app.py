@@ -1,19 +1,20 @@
-#app.py
+# app.py
+# app.py
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+from kneed import KneeLocator
 
+# Streamlit page configuration
 st.set_page_config(page_title="CGHS Wellness Dashboard", layout="wide")
-st.title("🏥 CGHS Wellness Center Dashboard")
+st.title("\U0001F3E5 CGHS Wellness Center Dashboard")
 
-# File upload in sidebar
+# Sidebar for file upload
 st.sidebar.header("📁 Upload Data Files")
 uploaded_excel = st.sidebar.file_uploader("Upload cleaned dataset (.xlsx)", type=["xlsx"])
 uploaded_csv = st.sidebar.file_uploader("Upload beneficiaries data (.csv)", type=["csv"])
-
 
 @st.cache_data
 def load_data(excel_file, csv_file):
@@ -24,37 +25,25 @@ def load_data(excel_file, csv_file):
         centers_df = pd.read_excel(excel_file)
         beneficiaries_df = pd.read_csv(csv_file)
 
-        # Remove spaces from column names
-        centers_df.columns = centers_df.columns.map(str).str.strip()
-        beneficiaries_df.columns = beneficiaries_df.columns.map(str).str.strip()
+        centers_df.columns = centers_df.columns.str.strip()
+        beneficiaries_df.columns = beneficiaries_df.columns.str.strip()
 
         return centers_df, beneficiaries_df
-
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
 
-
 # Load data
 centers_df, beneficiaries_df = load_data(uploaded_excel, uploaded_csv)
 
-# Rename any possible wellness center column to 'Wellness Center'
+# Rename to standard column name
 if not centers_df.empty:
-    possible_wc_columns = ['Wellness Center', 'wellnessCentreName', 'WellnessCentreName', 'Center Name']
     for col in centers_df.columns:
-        if col.strip() in possible_wc_columns:
+        if col.strip() in ['Wellness Center', 'wellnessCentreName', 'WellnessCentreName', 'Center Name']:
             centers_df.rename(columns={col: 'Wellness Center'}, inplace=True)
             break
 
-
-# Column name cleanup again for safety
-if not centers_df.empty:
-    centers_df.columns = centers_df.columns.map(str).str.strip()
-if not beneficiaries_df.empty:
-    beneficiaries_df.columns = beneficiaries_df.columns.map(str).str.strip()
-
-
-# Validate column presence
+# Validate required columns
 def check_required_columns(df, required_columns, df_name):
     if not isinstance(df, pd.DataFrame):
         st.error(f"{df_name} is not a valid DataFrame")
@@ -68,58 +57,94 @@ def check_required_columns(df, required_columns, df_name):
         return False
     return True
 
-
-# Stop execution if files are not uploaded
+# Require file upload to proceed
 if uploaded_excel is None or uploaded_csv is None:
     st.info("📂 Please upload both required files to continue.")
     st.stop()
 
-# Validate required columns
+# Column validation
 if not check_required_columns(centers_df, {'Wellness Center'}, "Centers Data"):
     st.stop()
 if not check_required_columns(beneficiaries_df, {'Wellness Center', 'City'}, "Beneficiaries Data"):
     st.stop()
 
-# Success message
 st.success("✅ Data loaded successfully!")
 
-# Optional data preview
+# Preview data
 with st.expander("🔍 Preview Uploaded Data"):
     st.subheader("Centers Data")
     st.dataframe(centers_df.head())
     st.subheader("Beneficiaries Data")
     st.dataframe(beneficiaries_df.head())
 
-# 📊 Add clustering, charts, or analytics here
-st.header("📊 Basic KMeans Clustering on Beneficiaries Data")
+# Clustering setup
+st.header("📊 KMeans Clustering on Beneficiaries Data")
 
-# Example clustering on number of beneficiaries per wellness center
 try:
-    # Grouping by Wellness Center
     grouped_df = beneficiaries_df.groupby('Wellness Center').size().reset_index(name='Beneficiary Count')
 
-    # Standardize the data
+    # Standardize
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(grouped_df[['Beneficiary Count']])
 
-    # Sidebar: select number of clusters
-    n_clusters = st.sidebar.slider('Select number of clusters:', min_value=2, max_value=10, value=3)
+    # Function to compute WCSS
+    def calculate_wcss(data):
+        wcss = []
+        for i in range(1, 11):
+            kmeans = KMeans(n_clusters=i, random_state=42)
+            kmeans.fit(data)
+            wcss.append(kmeans.inertia_)
+        return wcss
 
-    # KMeans Clustering
+    # Elbow method
+    st.subheader("📈 Elbow Method (Optional: Determine Optimal Clusters)")
+    wcss = calculate_wcss(X_scaled)
+
+    fig_elbow = px.line(
+        x=list(range(1, 11)),
+        y=wcss,
+        markers=True,
+        labels={'x': 'Number of Clusters', 'y': 'WCSS'},
+        title="Elbow Method For Optimal Clusters"
+    )
+    st.plotly_chart(fig_elbow, use_container_width=True)
+
+    # Optimal cluster suggestion
+    kneedle = KneeLocator(range(1, 11), wcss, curve='convex', direction='decreasing')
+    optimal_k = kneedle.elbow
+    st.info(f"🧠 Suggested optimal number of clusters: {optimal_k}")
+
+    # Cluster selection
+    n_clusters = st.sidebar.slider('Select number of clusters:', min_value=2, max_value=10, value=optimal_k or 3)
+
+    # Apply KMeans
     kmeans = KMeans(n_clusters=n_clusters, random_state=42)
     grouped_df['Cluster'] = kmeans.fit_predict(X_scaled)
 
-    # Plotting
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.scatterplot(data=grouped_df, x='Wellness Center', y='Beneficiary Count', hue='Cluster', palette='Set2', s=100, ax=ax)
-    plt.xticks(rotation=90)
-    plt.title('Clustering of Wellness Centers based on Beneficiaries')
-    plt.xlabel('Wellness Center')
-    plt.ylabel('Number of Beneficiaries')
-    plt.legend(title="Cluster")
-    st.pyplot(fig)
+    # Interactive Plotly scatter plot
+    fig_plotly = px.scatter(
+        grouped_df,
+        x='Wellness Center',
+        y='Beneficiary Count',
+        color=grouped_df['Cluster'].astype(str),
+        title='📊 Clustering of Wellness Centers Based on Beneficiaries',
+        labels={
+            'Wellness Center': 'Wellness Center',
+            'Beneficiary Count': 'Number of Beneficiaries',
+            'Cluster': 'Cluster'
+        },
+        hover_data=['Wellness Center', 'Beneficiary Count', 'Cluster']
+    )
 
-    # Optional: show cluster labels
+    fig_plotly.update_layout(
+        xaxis_tickangle=45,
+        height=700,
+        margin=dict(t=50, b=200),
+        showlegend=True
+    )
+
+    st.plotly_chart(fig_plotly, use_container_width=True)
+
     with st.expander("🔍 View Cluster Assignments"):
         st.dataframe(grouped_df)
 
