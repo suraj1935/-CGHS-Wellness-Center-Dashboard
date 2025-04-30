@@ -4,3 +4,4 @@ matplotlib
 seaborn
 scikit-learn
 openpyxl    # Required for reading .xlsx files
+plotly>=5.0.0
